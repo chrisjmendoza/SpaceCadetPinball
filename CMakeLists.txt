@@ -14,6 +14,11 @@ if(WIN32)
    list(APPEND SDL2_MIXER_PATH "${CMAKE_CURRENT_LIST_DIR}/Libs/SDL2_mixer")
 endif()
 
+# MSVC: fetch SDL-devel packages into /Libs when missing
+if(MSVC)
+   include(DownloadSDL)
+endif()
+
 # Link mingw libs static
 if(MINGW)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static")

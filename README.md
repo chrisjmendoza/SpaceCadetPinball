@@ -6,6 +6,16 @@
 
 Reverse engineering of `3D Pinball for Windows - Space Cadet`, a game bundled with Windows.
 
+### About this fork
+
+Based on [k4zmu2a/SpaceCadetPinball](https://github.com/k4zmu2a/SpaceCadetPinball), with small quality-of-life
+additions that leave the game itself untouched:
+
+* High DPI support on Windows: no more blurry, stretched window at 125%+ display scaling.
+* Window size, position and maximized state are remembered between sessions.
+* Optional CRT-style scanlines (`Options > Graphics > Scanlines`), off by default.
+* One-command Windows build (`build.ps1`) with automatic SDL download, and CI builds for Windows and Linux.
+
 ## How to play
 
 Place compiled executable into a folder containing original game resources (not included).\
@@ -59,9 +69,15 @@ Project uses `C++11` and depends on `SDL2` libs.
 
 ### On Windows
 
-Download and unpack devel packages for `SDL2` and `SDL2_mixer`.\
-Set paths to them in `CMakeLists.txt`, see suggested placement in `/Libs`.\
-Compile with Visual Studio; tested with 2019.
+Install Visual Studio 2019 or newer (or its Build Tools) with the `Desktop development with C++` workload, then run:
+
+```powershell
+.\build.ps1        # Release x64 build into bin\Release
+.\build.ps1 -Run   # build and start the game
+```
+
+CMake downloads the `SDL2` and `SDL2_mixer` devel packages into `/Libs` on first configure.
+To use your own copies instead, unpack them into `/Libs/SDL2` and `/Libs/SDL2_mixer`.
 
 ### On Linux
 

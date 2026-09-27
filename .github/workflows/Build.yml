@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # SDL-devel packages are downloaded by CMake
+      - name: Configure
+        run: cmake -S . -B build -A x64 -DCMAKE_WIN32_EXECUTABLE:BOOL=1
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpaceCadetPinball-win-x64
+          path: |
+            bin/Release/SpaceCadetPinball.exe
+            bin/Release/SDL2.dll
+            bin/Release/SDL2_mixer.dll
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel

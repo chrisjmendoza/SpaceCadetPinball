@@ -63,4 +63,5 @@ private:
 	static void repaint(const render_sprite& sprite);
 	static void paint_balls();
 	static void unpaint_balls();
+	static void DrawScanlines();
 };

@@ -152,6 +152,12 @@ optionsStruct options::Options
 	{"FontFileName", ""},
 	{"Language", translations::GetCurrentLanguage()->ShortName},
 	{"Hide Cursor", false},
+	{"Scanlines", false},
+	{"Window X", -1},
+	{"Window Y", -1},
+	{"Window Width", -1},
+	{"Window Height", -1},
+	{"Window Maximized", false},
 };
 
 void options::InitPrimary()
@@ -311,6 +317,9 @@ void options::toggle(Menu1 uIDCheckItem)
 	case Menu1::WindowIntegerScale:
 		Options.IntegerScaling ^= true;
 		fullscrn::window_size_changed();
+		break;
+	case Menu1::WindowScanlines:
+		Options.Scanlines ^= true;
 		break;
 	default:
 		break;
@@ -494,7 +503,7 @@ void options::MyUserData_WriteAll(ImGuiContext* ctx, ImGuiSettingsHandler* handl
 
 void options::PostProcessOptions()
 {
-	winmain::ImIO->FontGlobalScale = Options.UIScale;
+	winmain::ImIO->FontGlobalScale = Options.UIScale * winmain::DpiScale;
 	Options.FramesPerSecond = Clamp(Options.FramesPerSecond.V, MinFps, MaxFps);
 	Options.UpdatesPerSecond = Clamp(Options.UpdatesPerSecond.V, MinUps, MaxUps);
 	Options.UpdatesPerSecond = std::max(Options.UpdatesPerSecond.V, Options.FramesPerSecond.V);

@@ -519,8 +519,46 @@ void render::PresentVScreen()
 #endif
 	}
 
+	if (options::Options.Scanlines)
+	{
+		DrawScanlines();
+	}
+
 	if (options::Options.DebugOverlay)
 	{
 		DebugOverlay::DrawOverlay();
 	}
+}
+
+void render::DrawScanlines()
+{
+#if SDL_VERSION_ATLEAST(2, 0, 10)
+	// Darken the lower part of each table pixel row, like the gaps between CRT scanlines.
+	// Below 2x vertical scale there is no room for a gap, so the effect is skipped.
+	auto rowHeight = static_cast<float>(DestinationRect.h) / vscreen->Height;
+	if (rowHeight < 2.0f)
+		return;
+
+	auto lineHeight = std::max(1.0f, std::floor(rowHeight * 0.4f));
+	static std::vector<SDL_FRect> lines;
+	lines.clear();
+	for (auto row = 0; row < vscreen->Height; row++)
+	{
+		auto y = std::floor(DestinationRect.y + (row + 1) * rowHeight - lineHeight);
+		lines.push_back(SDL_FRect{
+			static_cast<float>(DestinationRect.x), y,
+			static_cast<float>(DestinationRect.w), lineHeight
+		});
+	}
+
+	Uint8 r, g, b, a;
+	SDL_BlendMode blendMode;
+	SDL_GetRenderDrawColor(winmain::Renderer, &r, &g, &b, &a);
+	SDL_GetRenderDrawBlendMode(winmain::Renderer, &blendMode);
+	SDL_SetRenderDrawBlendMode(winmain::Renderer, SDL_BLENDMODE_BLEND);
+	SDL_SetRenderDrawColor(winmain::Renderer, 0, 0, 0, 96);
+	SDL_RenderFillRectsF(winmain::Renderer, lines.data(), static_cast<int>(lines.size()));
+	SDL_SetRenderDrawColor(winmain::Renderer, r, g, b, a);
+	SDL_SetRenderDrawBlendMode(winmain::Renderer, blendMode);
+#endif
 }

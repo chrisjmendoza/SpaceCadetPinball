@@ -75,6 +75,7 @@ public:
 	static bool HighScoresEnabled;
 	static bool DemoActive;
 	static int MainMenuHeight;
+	static float DpiScale;
 
 	static int WinMain(LPCSTR lpCmdLine);
 	static int event_handler(const SDL_Event* event);
@@ -113,4 +114,8 @@ private:
 	static void HybridSleep(DurationMs seconds);
 	static void MainLoop();
 	static void ImGuiMenuItemWShortcut(GameBindings binding, bool selected = false);
+	static float GetWindowDpiScale();
+	static void UpdateDpiScale();
+	static void RestoreWindowGeometry();
+	static void SaveWindowGeometry();
 };

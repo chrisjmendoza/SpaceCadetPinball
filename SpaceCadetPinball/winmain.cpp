@@ -43,6 +43,7 @@ bool winmain::LaunchBallEnabled = true;
 bool winmain::HighScoresEnabled = true;
 bool winmain::DemoActive = false;
 int winmain::MainMenuHeight = 0;
+float winmain::DpiScale = 1.0f;
 std::string winmain::FpsDetails, winmain::PrevSdlError;
 unsigned winmain::PrevSdlErrorCount = 0;
 double winmain::UpdateToFrameRatio;
@@ -64,6 +65,10 @@ int winmain::WinMain(LPCSTR lpCmdLine)
 
 	// SDL init
 	SDL_SetMainReady();
+#if defined(_WIN32) && defined(SDL_HINT_WINDOWS_DPI_AWARENESS)
+	// Without DPI awareness Windows bitmap-stretches the window on high DPI displays, blurring the table.
+	SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
+#endif
 	if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO |
 		SDL_INIT_EVENTS | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) < 0)
 	{
@@ -87,6 +92,7 @@ int winmain::WinMain(LPCSTR lpCmdLine)
 		pb::ShowMessageBox(SDL_MESSAGEBOX_ERROR, "Could not create window", SDL_GetError());
 		return 1;
 	}
+	DpiScale = GetWindowDpiScale();
 
 	// If HW fails, fallback to SW SDL renderer.
 	SDL_Renderer* renderer = nullptr;
@@ -150,6 +156,7 @@ int winmain::WinMain(LPCSTR lpCmdLine)
 	}
 
 	auto resetAllOptions = strstr(lpCmdLine, "-reset") != nullptr;
+	auto firstRun = true;
 	do
 	{
 		restart = false;
@@ -199,6 +206,7 @@ int winmain::WinMain(LPCSTR lpCmdLine)
 		}
 		ImGui_Render_Init(renderer);
 		ImGui::StyleColorsDark();
+		ImGui::GetStyle().ScaleAllSizes(DpiScale);
 
 		ImGui_ImplSDL2_InitForSDLRenderer(window, Renderer);
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
@@ -250,13 +258,14 @@ int winmain::WinMain(LPCSTR lpCmdLine)
 			Options.FullScreen = true;
 		}
 
-		if (!Options.FullScreen)
-		{
-			auto resInfo = &fullscrn::resolution_array[fullscrn::GetResolution()];
-			SDL_SetWindowSize(MainWindow, resInfo->TableWidth, resInfo->TableHeight);
-		}
+		// Restarts keep the window as the user left it.
+		if (firstRun)
+			RestoreWindowGeometry();
 		SDL_ShowWindow(window);
+		if (firstRun && Options.WindowMaximized && !Options.FullScreen)
+			SDL_MaximizeWindow(window);
 		fullscrn::set_screen_mode(Options.FullScreen);
+		firstRun = false;
 
 		if (strstr(lpCmdLine, "-demo"))
 			pb::toggle_demo();
@@ -605,10 +614,18 @@ void winmain::RenderUi()
 				{
 					options::toggle(Menu1::WindowIntegerScale);
 				}
+				if (ImGui::MenuItem("Scanlines", nullptr, Options.Scanlines))
+				{
+					options::toggle(Menu1::WindowScanlines);
+				}
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::SetTooltip("CRT-style scanlines, visible when the table is scaled 2x or more.");
+				}
 				if (ImGui::DragFloat("UI Scale", &Options.UIScale.V, 0.005f, 0.8f, 5,
 				                     "%.2f", ImGuiSliderFlags_AlwaysClamp))
 				{
-					ImIO->FontGlobalScale = Options.UIScale;
+					ImIO->FontGlobalScale = Options.UIScale * DpiScale;
 				}
 				ImGui::Separator();
 
@@ -1017,7 +1034,18 @@ int winmain::event_handler(const SDL_Event* event)
 		case SDL_WINDOWEVENT_SIZE_CHANGED:
 		case SDL_WINDOWEVENT_RESIZED:
 			fullscrn::window_size_changed();
+			SaveWindowGeometry();
 			break;
+		case SDL_WINDOWEVENT_MOVED:
+		case SDL_WINDOWEVENT_MAXIMIZED:
+		case SDL_WINDOWEVENT_RESTORED:
+			SaveWindowGeometry();
+			break;
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+		case SDL_WINDOWEVENT_DISPLAY_CHANGED:
+			UpdateDpiScale();
+			break;
+#endif
 		default: ;
 		}
 		break;
@@ -1413,4 +1441,85 @@ void winmain::ImGuiMenuItemWShortcut(GameBindings binding, bool selected)
 	{
 		HandleGameBinding(binding, false);
 	}
+}
+
+float winmain::GetWindowDpiScale()
+{
+#ifdef _WIN32
+	// Windows reports 96 DPI at 100% scaling. Other platforms handle window scaling on their own.
+	float ddpi, hdpi, vdpi;
+	auto display = SDL_GetWindowDisplayIndex(MainWindow);
+	if (display >= 0 && SDL_GetDisplayDPI(display, &ddpi, &hdpi, &vdpi) == 0 && vdpi > 0)
+		return std::max(1.0f, vdpi / 96.0f);
+#endif
+	return 1.0f;
+}
+
+void winmain::UpdateDpiScale()
+{
+	auto scale = GetWindowDpiScale();
+	if (scale == DpiScale)
+		return;
+
+	DpiScale = scale;
+	auto& style = ImGui::GetStyle();
+	style = ImGuiStyle();
+	ImGui::StyleColorsDark();
+	style.ScaleAllSizes(DpiScale);
+	ImIO->FontGlobalScale = Options.UIScale * DpiScale;
+}
+
+void winmain::RestoreWindowGeometry()
+{
+	int x = Options.WindowX, y = Options.WindowY;
+	int width = Options.WindowWidth, height = Options.WindowHeight;
+	if (width > 0 && height > 0)
+	{
+		// Reuse saved position only if a good part of the window lands on a connected display.
+		SDL_Rect windowRect{x, y, width, height}, displayRect{}, visibleRect{};
+		auto visible = false;
+		for (auto i = 0; i < SDL_GetNumVideoDisplays() && !visible; i++)
+		{
+			visible = SDL_GetDisplayUsableBounds(i, &displayRect) == 0 &&
+				SDL_IntersectRect(&windowRect, &displayRect, &visibleRect) &&
+				visibleRect.w >= 100 && visibleRect.h >= 100;
+		}
+
+		SDL_SetWindowSize(MainWindow, width, height);
+		if (visible)
+			SDL_SetWindowPosition(MainWindow, x, y);
+		else
+			SDL_SetWindowPosition(MainWindow, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+		return;
+	}
+
+	// First launch: table size scaled by display DPI, shrunk to fit the display if needed.
+	auto resInfo = &fullscrn::resolution_array[fullscrn::GetResolution()];
+	auto scale = DpiScale;
+	SDL_Rect bounds{};
+	auto display = SDL_GetWindowDisplayIndex(MainWindow);
+	if (display >= 0 && SDL_GetDisplayUsableBounds(display, &bounds) == 0)
+	{
+		scale = std::min(scale, 0.9f * bounds.w / resInfo->TableWidth);
+		scale = std::min(scale, 0.9f * bounds.h / resInfo->TableHeight);
+	}
+	width = static_cast<int>(resInfo->TableWidth * scale);
+	height = static_cast<int>(resInfo->TableHeight * scale);
+	SDL_SetWindowSize(MainWindow, width, height);
+	SDL_SetWindowPosition(MainWindow, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+}
+
+void winmain::SaveWindowGeometry()
+{
+	auto flags = SDL_GetWindowFlags(MainWindow);
+	if (flags & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN))
+		return;
+
+	// While maximized, keep the last normal geometry so that un-maximize has somewhere to go.
+	Options.WindowMaximized = (flags & SDL_WINDOW_MAXIMIZED) != 0;
+	if (Options.WindowMaximized)
+		return;
+
+	SDL_GetWindowPosition(MainWindow, &Options.WindowX.V, &Options.WindowY.V);
+	SDL_GetWindowSize(MainWindow, &Options.WindowWidth.V, &Options.WindowHeight.V);
 }

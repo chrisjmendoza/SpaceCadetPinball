@@ -19,6 +19,8 @@ additions that leave the game itself untouched:
 * Window size, position and maximized state are remembered between sessions.
 * Optional CRT-style scanlines (`Options > Graphics > Scanlines`), off by default.
 * One-command Windows build (`build.ps1`) with automatic SDL download, and CI builds for Windows and Linux.
+* Ready-to-run Windows zips on the Releases page: pushing a `v*` tag (e.g. `git tag v2.1.1-fork.2; git push origin v2.1.1-fork.2`)
+  builds and publishes one. Game data is still required, see `HOW-TO-PLAY.txt` in the zip.
 
 ## How to play
 

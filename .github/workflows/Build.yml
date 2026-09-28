@@ -9,6 +9,8 @@ jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 20
+    permissions:
+      contents: write # publish releases for v* tags
     steps:
       - uses: actions/checkout@v5
 
@@ -26,6 +28,27 @@ jobs:
             bin/Release/SpaceCadetPinball.exe
             bin/Release/SDL2.dll
             bin/Release/SDL2_mixer.dll
+
+      # Pushing a v* tag publishes a ready-to-run zip on the Releases page
+      - name: Package release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          $zip = "SpaceCadetPinball-${{ github.ref_name }}-win-x64.zip"
+          @(
+            "3D Pinball Space Cadet - ${{ github.ref_name }}"
+            ""
+            "Game data is not included. Copy PINBALL.DAT, PINBALL.MID and the SOUND*.WAV files"
+            "from Windows XP's Pinball folder (or CADET.DAT from Full Tilt! Pinball) either next"
+            "to SpaceCadetPinball.exe or into %APPDATA%\SpaceCadetPinball, then run the exe."
+          ) | Set-Content bin/Release/HOW-TO-PLAY.txt
+          Compress-Archive -Path bin/Release/SpaceCadetPinball.exe, bin/Release/SDL2.dll, bin/Release/SDL2_mixer.dll, bin/Release/HOW-TO-PLAY.txt -DestinationPath $zip
+          "ZIP=$zip" >> $env:GITHUB_ENV
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" "$env:ZIP" --repo "${{ github.repository }}" --title "${{ github.ref_name }}" --generate-notes
 
   linux:
     runs-on: ubuntu-latest

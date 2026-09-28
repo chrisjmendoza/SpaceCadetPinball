@@ -87,6 +87,7 @@ public:
 	static void pause(bool toggle = true);
 	static void Restart();
 	static void UpdateFrameRate();
+	static void ApplyVSync();
 	static void HandleGameBinding(GameBindings binding, bool shortcut);
 private:
 	static int return_value;
@@ -108,6 +109,9 @@ private:
 	static unsigned gfrOffset;
 	static float gfrWindow;
 	static int CursorIdleCounter;
+	static bool VSyncActive;
+	static int RefreshRate, UpdatesPerFrame;
+	static DurationMs RefreshInterval, FrameTimeAverage;
 
 	static void RenderUi();
 	static void RenderFrameTimeDialog();
@@ -118,4 +122,5 @@ private:
 	static void UpdateDpiScale();
 	static void RestoreWindowGeometry();
 	static void SaveWindowGeometry();
+	static void UpdateRefreshRate();
 };

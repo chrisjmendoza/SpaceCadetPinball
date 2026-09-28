@@ -11,6 +11,10 @@ Reverse engineering of `3D Pinball for Windows - Space Cadet`, a game bundled wi
 Based on [k4zmu2a/SpaceCadetPinball](https://github.com/k4zmu2a/SpaceCadetPinball), with small quality-of-life
 additions that leave the game itself untouched:
 
+* VSync (`Options > Graphics > VSync`, on by default): frames are locked to the display refresh with a whole
+  number of physics updates per frame, removing the periodic hitch caused by the game timer drifting against
+  the monitor. On Windows, frames are paced with `DwmFlush`, which avoids D3D9's unreliable windowed VSync
+  and the input lag of queued D3D11 frames. Game speed is unchanged.
 * High DPI support on Windows: no more blurry, stretched window at 125%+ display scaling.
 * Window size, position and maximized state are remembered between sessions.
 * Optional CRT-style scanlines (`Options > Graphics > Scanlines`), off by default.

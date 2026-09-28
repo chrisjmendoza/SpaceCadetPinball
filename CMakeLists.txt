@@ -223,6 +223,11 @@ endif()
 
 target_link_libraries(SpaceCadetPinball ${SDL2_LIBRARY} ${SDL2_MIXER_LIBRARY})
 
+# DwmFlush for VSync pacing
+if(WIN32)
+    target_link_libraries(SpaceCadetPinball dwmapi)
+endif()
+
 # On Windows, copy DLL to output
 if(WIN32)
     list(GET SDL2_LIBRARY -1 SDL2_DLL_PATH)

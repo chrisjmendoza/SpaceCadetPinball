@@ -158,6 +158,7 @@ optionsStruct options::Options
 	{"Window Width", -1},
 	{"Window Height", -1},
 	{"Window Maximized", false},
+	{"VSync", true},
 };
 
 void options::InitPrimary()

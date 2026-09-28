@@ -12,6 +12,13 @@
 #include "translations.h"
 #include "font_selection.h"
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <dwmapi.h>
+#endif
+
 constexpr const char* winmain::Version;
 
 SDL_Window* winmain::MainWindow = nullptr;
@@ -52,6 +59,11 @@ optionsStruct& winmain::Options = options::Options;
 winmain::DurationMs winmain::SpinThreshold = DurationMs(0.005);
 WelfordState winmain::SleepState{};
 int winmain::CursorIdleCounter = 0;
+bool winmain::VSyncActive = false;
+int winmain::RefreshRate = 60;
+int winmain::UpdatesPerFrame = 1;
+winmain::DurationMs winmain::RefreshInterval = DurationMs(1000.0 / 60);
+winmain::DurationMs winmain::FrameTimeAverage = DurationMs(1000.0 / 60);
 
 int winmain::WinMain(LPCSTR lpCmdLine)
 {
@@ -176,6 +188,7 @@ int winmain::WinMain(LPCSTR lpCmdLine)
 			resetAllOptions = false;
 			options::ResetAllOptions();
 		}
+		ApplyVSync();
 
 		if (!Options.FontFileName.V.empty())
 		{
@@ -360,9 +373,17 @@ void winmain::MainLoop()
 				last_mouse_x = x;
 				last_mouse_y = y;
 			}
-			if (!single_step && !no_time_loss)
+			// Timer mode: one update per loop. VSync mode: one frame per loop, split into equal updates.
+			auto updates = 1;
+			auto dt = static_cast<float>(frameDuration.count());
+			if (VSyncActive)
 			{
-				auto dt = static_cast<float>(frameDuration.count());
+				updates = std::max(UpdatesPerFrame,
+				                   static_cast<int>(std::lround(frameDuration / FrameTimeAverage * UpdatesPerFrame)));
+				dt /= static_cast<float>(updates);
+			}
+			for (auto update = 0; update < updates && !single_step && !no_time_loss; update++)
+			{
 				pb::frame(dt);
 				if (DispGRhistory)
 				{
@@ -379,7 +400,7 @@ void winmain::MainLoop()
 			}
 			no_time_loss = false;
 
-			if (UpdateToFrameCounter >= UpdateToFrameRatio)
+			if (VSyncActive || UpdateToFrameCounter >= UpdateToFrameRatio)
 			{
 				if (Options.HideCursor && CursorIdleCounter <= 0)
 					ImGui::SetMouseCursor(ImGuiMouseCursor_None);
@@ -398,6 +419,10 @@ void winmain::MainLoop()
 				ImGui_Render_RenderDrawData(ImGui::GetDrawData());
 
 				SDL_RenderPresent(Renderer);
+#ifdef _WIN32
+				if (VSyncActive)
+					DwmFlush();
+#endif
 				frameCounter++;
 				UpdateToFrameCounter -= UpdateToFrameRatio;
 			}
@@ -425,6 +450,46 @@ void winmain::MainLoop()
 				{
 					PrevSdlErrorCount++;
 				}
+			}
+
+			if (VSyncActive)
+			{
+				// The wait for the display refresh has paced this frame. If it did not wait
+				// (VSync unavailable, window hidden), sleep instead so that the loop does not spin.
+				auto elapsed = DurationMs(Clock::now() - frameStart);
+				if (elapsed < FrameTimeAverage / 2)
+				{
+					if (Options.HybridSleep)
+						HybridSleep(FrameTimeAverage - elapsed);
+					else
+						std::this_thread::sleep_for(FrameTimeAverage - elapsed);
+				}
+
+				// Measured frame times jitter, the display does not: frames close to the average get
+				// the running average, which also tracks the exact refresh rate (e.g. 59.95 Hz).
+				// Longer frames (missed refreshes, window drag) get their measured time, up to 4 frames.
+				// A long run of outliers means the refresh rate estimate is off, start over from the measurement.
+				auto frameEnd = Clock::now();
+				auto measured = DurationMs(frameEnd - frameStart);
+				static auto outliers = 0;
+				if (std::abs((measured - FrameTimeAverage).count()) < FrameTimeAverage.count() * 0.25)
+				{
+					outliers = 0;
+					FrameTimeAverage += (measured - FrameTimeAverage) * 0.05;
+					frameDuration = FrameTimeAverage;
+				}
+				else
+				{
+					if (++outliers > 30)
+						FrameTimeAverage = Clamp(measured, DurationMs(1000.0 / 500), DurationMs(1000.0 / 20));
+					frameDuration = std::min<DurationMs>(measured, 4 * FrameTimeAverage);
+				}
+				frameStart = frameEnd;
+				UpdateToFrameCounter = 0;
+				sleepRemainder = DurationMs::zero();
+
+				CursorIdleCounter = std::max(CursorIdleCounter - static_cast<int>(frameDuration.count()), 0);
+				continue;
 			}
 
 			auto updateEnd = Clock::now();
@@ -631,6 +696,21 @@ void winmain::RenderUi()
 
 				char buffer[80]{};
 				auto changed = false;
+				if (ImGui::MenuItem("VSync", nullptr, Options.VSync))
+				{
+					Options.VSync ^= true;
+					ApplyVSync();
+				}
+				if (ImGui::IsItemHovered())
+				{
+					if (VSyncActive)
+						ImGui::SetTooltip("Frames follow the %.2f Hz display, %d updates per frame.",
+						                  1000.0 / FrameTimeAverage.count(), UpdatesPerFrame);
+					else if (Options.VSync)
+						ImGui::SetTooltip("VSync is not supported by this renderer.");
+					else
+						ImGui::SetTooltip("Sync frames to the display refresh for smooth motion without tearing.");
+				}
 				if (ImGui::MenuItem("Set Default UPS/FPS"))
 				{
 					changed = true;
@@ -643,6 +723,8 @@ void winmain::RenderUi()
 					changed = true;
 					Options.FramesPerSecond = std::min(Options.UpdatesPerSecond.V, Options.FramesPerSecond.V);
 				}
+				// With VSync, FPS is the display refresh rate
+				ImGui::BeginDisabled(VSyncActive);
 				if (ImGui::SliderInt("FPS", &Options.FramesPerSecond.V, options::MinFps, options::MaxFps, "%d",
 				                     ImGuiSliderFlags_AlwaysClamp))
 				{
@@ -654,6 +736,7 @@ void winmain::RenderUi()
 				{
 					Options.UncappedUpdatesPerSecond ^= true;
 				}
+				ImGui::EndDisabled();
 				if (ImGui::MenuItem("Precise Sleep", nullptr, Options.HybridSleep))
 				{
 					Options.HybridSleep ^= true;
@@ -1044,6 +1127,7 @@ int winmain::event_handler(const SDL_Event* event)
 #if SDL_VERSION_ATLEAST(2, 0, 18)
 		case SDL_WINDOWEVENT_DISPLAY_CHANGED:
 			UpdateDpiScale();
+			UpdateRefreshRate();
 			break;
 #endif
 		default: ;
@@ -1326,8 +1410,44 @@ void winmain::UpdateFrameRate()
 {
 	// UPS >= FPS
 	auto fps = Options.FramesPerSecond.V, ups = Options.UpdatesPerSecond.V;
+	if (VSyncActive)
+	{
+		// FPS follows the display, UPS is rounded to a whole number of updates per frame for even motion.
+		UpdatesPerFrame = std::max(1, static_cast<int>(std::lround(static_cast<double>(ups) / RefreshRate)));
+		UpdateToFrameRatio = UpdatesPerFrame;
+		RefreshInterval = DurationMs(1000.0 / RefreshRate);
+		FrameTimeAverage = RefreshInterval;
+		TargetFrameTime = RefreshInterval / UpdatesPerFrame;
+		return;
+	}
 	UpdateToFrameRatio = static_cast<double>(ups) / fps;
 	TargetFrameTime = DurationMs(1000.0 / ups);
+}
+
+void winmain::ApplyVSync()
+{
+#ifdef _WIN32
+	// Renderer VSync is unreliable in a window under the desktop compositor: D3D9 misses refreshes,
+	// D3D11 queues up to 3 frames of input lag. Instead, frames are presented immediately and
+	// paced by waiting for the compositor with DwmFlush.
+	VSyncActive = Options.VSync;
+#elif SDL_VERSION_ATLEAST(2, 0, 18)
+	VSyncActive = SDL_RenderSetVSync(Renderer, Options.VSync ? 1 : 0) == 0 && Options.VSync;
+#else
+	VSyncActive = false;
+#endif
+	UpdateRefreshRate();
+}
+
+void winmain::UpdateRefreshRate()
+{
+	SDL_DisplayMode mode{};
+	auto display = SDL_GetWindowDisplayIndex(MainWindow);
+	if (display >= 0 && SDL_GetCurrentDisplayMode(display, &mode) == 0 && mode.refresh_rate > 0)
+		RefreshRate = mode.refresh_rate;
+	else
+		RefreshRate = 60;
+	UpdateFrameRate();
 }
 
 void winmain::HandleGameBinding(GameBindings binding, bool shortcut)

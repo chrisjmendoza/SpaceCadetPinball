@@ -296,4 +296,5 @@ struct optionsStruct
 	IntOption WindowWidth;
 	IntOption WindowHeight;
 	BoolOption WindowMaximized;
+	BoolOption VSync;
 };
